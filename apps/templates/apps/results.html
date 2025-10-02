@@ -1,24 +1,899 @@
-{% extends "apps/base.html" %}
-{% block content %}
-<h2>Kết quả trích xuất</h2>
-{% if has_data %}
-    <table border="1" cellpadding="5">
-        <thead>
-            <tr>
-                {% for col in df_columns %}<th>{{ col }}</th>{% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in df_rows %}
-                <tr>
-                    {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <br>
-    <a href="{% url 'download_excel' %}"><button>Tải file Excel kết quả</button></a>
-{% else %}
-    <p>Không có dữ liệu để hiển thị.</p>
-{% endif %}
-{% endblock %}
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <title>Kết quả OCR</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .main-content {
+            display: flex;
+            gap: 20px;
+            height: calc(100vh - 200px);
+        }
+        
+        .data-section {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .section-header {
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .search-container {
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+
+        .search-box {
+            position: relative;
+            max-width: 400px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 35px 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6c757d;
+        }
+
+        .clear-search {
+            position: absolute;
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 3px;
+        }
+
+        .clear-search:hover {
+            background: #e9ecef;
+        }
+
+        .search-results {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .highlight {
+            background-color: #fff3cd;
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+        
+        .table-container {
+            height: calc(100% - 150px);
+            overflow: auto;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th {
+            background: #f8f9fa;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .data-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .data-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .editable-cell {
+            cursor: pointer;
+        }
+        .editable-cell:hover {
+            background: #e3f2fd;
+        }
+        .cell-changed {
+            background: #fff3cd !important;
+        }
+        
+        .image-section {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .image-header {
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .upload-area {
+            padding: 20px;
+            text-align: center;
+            border: 2px dashed #007bff;
+            margin: 20px;
+            border-radius: 8px;
+            background: #f8f9ff;
+        }
+        
+        .image-controls {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+
+        .image-counter {
+            background: #fff;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            border: 1px solid #dee2e6;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .image-container {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: auto;
+        }
+        
+        .image-display {
+            text-align: center;
+            width: 100%;
+        }
+        
+        .image-display img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .image-filename {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            word-break: break-all;
+        }
+        
+        .error-info {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+        
+        .success-info {
+            background: #d1edff;
+            color: #0c5460;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+        
+        .error-list {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8d7da;
+            color: #721c24;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .error-list-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #f5c6cb;
+        }
+        
+        .hidden { 
+            display: none !important; 
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+            font-style: italic;
+        }
+        .no-data {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px auto;
+            max-width: 600px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .no-data h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .no-data p {
+            color: #666;
+            margin-bottom: 25px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Kết quả OCR - {{ processing_type|title }}</h1>
+        <div class="header-buttons">
+            {% if has_data %}
+            <form method="post" action="{% url 'download_excel' %}" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success">Tải Excel</button>
+            </form>
+            {% endif %}
+            <a href="{% url 'upload_file' %}" class="btn btn-primary">Tải ảnh mới</a>
+        </div>
+    </div>
+
+    {% if has_data %}
+    <div class="main-content">
+        <div class="data-section">
+            <div class="section-header">
+                <h3>Dữ liệu trích xuất ({{ df_rows|length }} bản ghi)</h3>
+                <div>
+                    <button class="btn btn-warning" onclick="toggleEditMode()" id="editModeBtn">
+                        Chỉnh sửa
+                    </button>
+                    <button class="btn btn-success hidden" onclick="saveChanges()" id="saveBtn">
+                        Lưu thay đổi
+                    </button>
+                    <button class="btn btn-secondary hidden" onclick="cancelEdit()" id="cancelBtn">
+                        Hủy
+                    </button>
+                </div>
+            </div>
+
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" 
+                           class="search-input" 
+                           id="searchInput"
+                           placeholder="{% if processing_type == 'transcript' %}Tìm kiếm SBD...{% else %}Tìm kiếm họ tên...{% endif %}"
+                           oninput="searchData()">
+                    <span class="search-icon">🔍</span>
+                    <button class="clear-search hidden" id="clearSearch" onclick="clearSearch()">✕</button>
+                </div>
+                <div class="search-results" id="searchResults"></div>
+            </div>
+            
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">STT</th>
+                            {% for col in df_columns %}
+                            <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                        {% for row in df_rows %}
+                        <tr data-index="{{ forloop.counter0 }}">
+                            <td>{{ forloop.counter }}</td>
+                            {% for col in df_columns %}
+                            <td class="editable-cell" 
+                                data-row="{{ forloop.parentloop.counter0 }}" 
+                                data-field="{{ col }}"
+                                data-original="{% for k, v in row.items %}{% if k == col %}{{ v }}{% endif %}{% endfor %}">
+                                {% for k, v in row.items %}{% if k == col %}{{ v }}{% endif %}{% endfor %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                
+                <div id="noResults" class="no-results hidden">
+                    Không tìm thấy kết quả phù hợp
+                </div>
+            </div>
+        </div>
+        
+        <div class="image-section">
+            <div class="image-header">
+                <h3>Ảnh đối chiếu</h3>
+            </div>
+            
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="zipUpload" accept=".zip" class="hidden" onchange="handleZipUpload(this)">
+                <button class="btn btn-primary" onclick="document.getElementById('zipUpload').click()">
+                    Tải ZIP để đối chiếu
+                </button>
+                <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                    Chọn file ZIP chứa ảnh để đối chiếu với kết quả
+                </div>
+            </div>
+            
+            <div class="image-controls" id="imageControls">
+                <button class="btn btn-secondary" onclick="previousImage()" id="prevBtn">
+                    ← Trước
+                </button>
+                <div class="image-counter">
+                    <span id="currentIndex">1</span> / <span id="totalImages">0</span>
+                </div>
+                <button class="btn btn-secondary" onclick="nextImage()" id="nextBtn">
+                    Sau →
+                </button>
+            </div>
+            
+            <div class="image-container" id="imageContainer">
+                {% if processed_images %}
+                <div style="text-align: center; color: #007bff; padding: 20px;">
+                    <div>Đã có {{ processed_images|length }} ảnh đã xử lý</div>
+                    <button class="btn btn-primary" onclick="loadProcessedImages()" style="margin-top: 15px;">
+                        Xem ảnh đã xử lý
+                    </button>
+                </div>
+                {% else %}
+                <div style="text-align: center; color: #666; padding: 40px;">
+                    Chưa có ảnh để hiển thị
+                </div>
+                {% endif %}
+                {% if error_image_filenames %}
+                <div class="error-list">
+                    <h4>Ảnh lỗi không quét được:</h4>
+                    {% for filename in error_image_filenames %}
+                    <div class="error-list-item">{{ filename }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="no-data" style="background: white; padding: 40px; border-radius: 8px; text-align: center; margin: 20px;">
+        <h3>Không có dữ liệu</h3>
+        {% if error_message %}
+            <p style="color: #dc3545; margin: 20px 0;">{{ error_message }}</p>
+        {% else %}
+            <p style="margin: 20px 0;">Không thể trích xuất dữ liệu từ các ảnh đã tải lên.</p>
+        {% endif %}
+        <a href="{% url 'upload_file' %}" class="btn btn-primary">Tải ảnh mới</a>
+    </div>
+    {% endif %}
+
+    <script>
+        let editMode = false;
+        let changedCells = new Map();
+        let currentImageIndex = 0;
+        let imageFiles = [];
+        let originalTableData = [];
+        let filteredData = [];
+        let currentSearchTerm = '';
+        let imageProcessResults = {};
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSearchData();
+            {% if processed_images %}
+            setTimeout(loadProcessedImages, 500);
+            {% endif %}
+        });
+
+        function initializeSearchData() {
+            const tableBody = document.getElementById('dataTableBody');
+            if (!tableBody) return;
+            
+            const rows = tableBody.querySelectorAll('tr');
+            rows.forEach((row, index) => {
+                const rowData = { element: row, index: index, data: {} };
+                const cells = row.querySelectorAll('td');
+                cells.forEach((cell, cellIndex) => {
+                    if (cellIndex === 0) return;
+                    const field = cell.dataset.field;
+                    const value = cell.textContent.trim();
+                    if (field) rowData.data[field] = value;
+                });
+                originalTableData.push(rowData);
+            });
+            filteredData = [...originalTableData];
+        }
+
+        function searchData() {
+            const searchInput = document.getElementById('searchInput');
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            const clearButton = document.getElementById('clearSearch');
+            const searchResults = document.getElementById('searchResults');
+            const noResults = document.getElementById('noResults');
+            
+            currentSearchTerm = searchTerm;
+            
+            if (searchTerm) {
+                clearButton.classList.remove('hidden');
+            } else {
+                clearButton.classList.add('hidden');
+            }
+            
+            if (!searchTerm) {
+                filteredData = [...originalTableData];
+                filteredData.forEach(item => {
+                    item.element.style.display = '';
+                    updateRowNumber(item.element, item.index + 1);
+                    removeHighlights(item.element);
+                });
+                searchResults.textContent = '';
+                noResults.classList.add('hidden');
+                return;
+            }
+            
+            const processingType = '{{ processing_type }}';
+            filteredData = originalTableData.filter(item => {
+                if (processingType === 'transcript') {
+                    const sbd = item.data['Sbd'] || '';
+                    return sbd.toLowerCase().includes(searchTerm);
+                } else {
+                    const name = item.data['Ho_ten'] || '';
+                    return name.toLowerCase().includes(searchTerm);
+                }
+            });
+            
+            let visibleCount = 0;
+            originalTableData.forEach(item => {
+                const isVisible = filteredData.includes(item);
+                if (isVisible) {
+                    item.element.style.display = '';
+                    visibleCount++;
+                    updateRowNumber(item.element, visibleCount);
+                    highlightSearchTerm(item.element, searchTerm);
+                } else {
+                    item.element.style.display = 'none';
+                    removeHighlights(item.element);
+                }
+            });
+            
+            if (filteredData.length === 0) {
+                searchResults.textContent = 'Không tìm thấy kết quả';
+                noResults.classList.remove('hidden');
+            } else {
+                searchResults.textContent = `Tìm thấy ${filteredData.length} kết quả`;
+                noResults.classList.add('hidden');
+            }
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('clearSearch').classList.add('hidden');
+            document.getElementById('searchResults').textContent = '';
+            document.getElementById('noResults').classList.add('hidden');
+            currentSearchTerm = '';
+            
+            originalTableData.forEach((item, index) => {
+                item.element.style.display = '';
+                updateRowNumber(item.element, index + 1);
+                removeHighlights(item.element);
+            });
+            filteredData = [...originalTableData];
+        }
+
+        function updateRowNumber(row, number) {
+            const firstCell = row.querySelector('td:first-child');
+            if (firstCell) firstCell.textContent = number;
+        }
+
+        function highlightSearchTerm(row, searchTerm) {
+            const processingType = '{{ processing_type }}';
+            const cells = row.querySelectorAll('td');
+            
+            cells.forEach(cell => {
+                const field = cell.dataset.field;
+                if ((processingType === 'transcript' && field === 'Sbd') ||
+                    (processingType === 'certificate' && field === 'Ho_ten')) {
+                    const originalText = cell.dataset.original || cell.textContent;
+                    const highlightedText = originalText.replace(
+                        new RegExp(`(${escapeRegex(searchTerm)})`, 'gi'),
+                        '<span class="highlight">$1</span>'
+                    );
+                    cell.innerHTML = highlightedText;
+                }
+            });
+        }
+
+        function removeHighlights(row) {
+            const cells = row.querySelectorAll('td');
+            cells.forEach(cell => {
+                const field = cell.dataset.field;
+                if (field) {
+                    const originalText = cell.dataset.original || cell.textContent.replace(/<[^>]*>/g, '');
+                    cell.textContent = originalText;
+                }
+            });
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function handleZipUpload(input) {
+            const file = input.files[0];
+            if (!file || !file.name.toLowerCase().endsWith('.zip')) {
+                alert('Vui lòng chọn file ZIP');
+                return;
+            }
+            
+            const imageContainer = document.getElementById('imageContainer');
+            imageContainer.innerHTML = '<div style="text-align: center; color: #007bff; padding: 40px;">Đang tải ảnh...</div>';
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                JSZip.loadAsync(e.target.result).then(function(zip) {
+                    const imagePromises = [];
+                    
+                    zip.forEach(function(relativePath, zipEntry) {
+                        if (!zipEntry.dir && 
+                            /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(relativePath) &&
+                            !relativePath.startsWith('__MACOSX/') &&
+                            !relativePath.startsWith('.')) {
+                            
+                            imagePromises.push(
+                                zipEntry.async('blob').then(function(blob) {
+                                    return {
+                                        name: relativePath.split('/').pop(),
+                                        fullPath: relativePath,
+                                        url: URL.createObjectURL(blob),
+                                        blob: blob,
+                                        size: blob.size,
+                                        processed: false,
+                                        hasData: false,
+                                        error: null
+                                    };
+                                })
+                            );
+                        }
+                    });
+                    
+                    if (imagePromises.length === 0) {
+                        imageContainer.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">Không tìm thấy ảnh trong file ZIP</div>';
+                        return;
+                    }
+                    
+                    Promise.all(imagePromises).then(function(images) {
+                        imageFiles = images.filter(img => img !== null);
+                        imageFiles.sort((a, b) => a.name.localeCompare(b.name));
+                        
+                        // Simulate OCR results check (replace with actual data from server)
+                        imageFiles.forEach(img => {
+                            img.hasData = Math.random() > 0.3; // 70% success rate
+                            if (!img.hasData) {
+                                img.error = 'Không thể trích xuất dữ liệu từ ảnh này';
+                            }
+                        });
+                        
+                        currentImageIndex = 0;
+                        
+                        document.getElementById('uploadArea').style.display = 'none';
+                        document.getElementById('imageControls').style.display = 'flex';
+                        document.getElementById('totalImages').textContent = imageFiles.length;
+                        
+                        showCurrentImage();
+                    });
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function showCurrentImage() {
+            if (imageFiles.length === 0) return;
+            
+            const imageContainer = document.getElementById('imageContainer');
+            const currentImage = imageFiles[currentImageIndex];
+            
+            const statusInfo = currentImage.hasData 
+                ? `<div class="success-info">✓ Đã trích xuất dữ liệu thành công</div>`
+                : `<div class="error-info">⚠ ${currentImage.error || 'Không thể OCR ảnh này'}</div>`;
+            
+            imageContainer.innerHTML = `
+                <div class="image-display">
+                    <img src="${currentImage.url}" alt="${currentImage.name}">
+                    <div class="image-filename">
+                        ${currentImage.name}
+                        ${statusInfo}
+                    </div>
+                </div>
+                {% if error_image_filenames %}
+                <div class="error-list">
+                    <h4>Ảnh lỗi không quét được:</h4>
+                    {% for filename in error_image_filenames %}
+                    <div class="error-list-item">${filename}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            `;
+            
+            updateImageControls();
+        }
+
+        function loadProcessedImages() {
+            const processedImages = [
+                {% for img in processed_images %}
+                {
+                    name: '{{ img.filename|escapejs }}',
+                    url: '{{ img.url|escapejs }}',
+                    size: 0,
+                    hasData: {{ img.success|lower }},
+                    processed: true,
+                    error: {% if img.error %}'{{ img.error|escapejs }}'{% else %}null{% endif %}
+                }{% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ];
+
+            if (processedImages.length === 0) return;
+
+            imageFiles = processedImages;
+            currentImageIndex = 0;
+
+            document.getElementById('uploadArea').style.display = 'none';
+            document.getElementById('imageControls').style.display = 'flex';
+            document.getElementById('totalImages').textContent = imageFiles.length;
+
+            showCurrentImage();
+        }
+
+        function updateImageControls() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            const currentSpan = document.getElementById('currentIndex');
+            
+            prevBtn.disabled = currentImageIndex <= 0;
+            nextBtn.disabled = currentImageIndex >= imageFiles.length - 1;
+            currentSpan.textContent = currentImageIndex + 1;
+        }
+
+        function previousImage() {
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                showCurrentImage();
+            }
+        }
+
+        function nextImage() {
+            if (currentImageIndex < imageFiles.length - 1) {
+                currentImageIndex++;
+                showCurrentImage();
+            }
+        }
+
+        // Edit functions (simplified)
+        function toggleEditMode() {
+            editMode = !editMode;
+            const editBtn = document.getElementById('editModeBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            
+            if (editMode) {
+                editBtn.classList.add('hidden');
+                saveBtn.classList.remove('hidden');
+                cancelBtn.classList.remove('hidden');
+                
+                document.querySelectorAll('.editable-cell').forEach(cell => {
+                    cell.addEventListener('dblclick', makeEditable);
+                    cell.title = 'Double-click để chỉnh sửa';
+                });
+            } else {
+                editBtn.classList.remove('hidden');
+                saveBtn.classList.add('hidden');
+                cancelBtn.classList.add('hidden');
+                
+                document.querySelectorAll('.editable-cell').forEach(cell => {
+                    cell.removeEventListener('dblclick', makeEditable);
+                    cell.title = '';
+                });
+            }
+        }
+        
+        function makeEditable(event) {
+            if (!editMode) return;
+            
+            const cell = event.target;
+            if (cell.querySelector('input')) return;
+            
+            const currentValue = cell.textContent.trim();
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentValue;
+            input.style.width = '100%';
+            input.style.padding = '4px';
+            input.style.border = '2px solid #007bff';
+            
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+            input.select();
+            
+            input.addEventListener('blur', () => finishEditing(cell, input.value));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') finishEditing(cell, input.value);
+                if (e.key === 'Escape') finishEditing(cell, cell.dataset.original);
+            });
+        }
+        
+        function finishEditing(cell, newValue) {
+            const originalValue = cell.dataset.original;
+            cell.textContent = newValue;
+            
+            const cellKey = `${cell.dataset.row}-${cell.dataset.field}`;
+            
+            if (newValue !== originalValue) {
+                cell.classList.add('cell-changed');
+                changedCells.set(cellKey, {
+                    row: parseInt(cell.dataset.row),
+                    field: cell.dataset.field,
+                    newValue: newValue
+                });
+            } else {
+                cell.classList.remove('cell-changed');
+                changedCells.delete(cellKey);
+            }
+            
+            updateSaveButtonState();
+        }
+        
+        function updateSaveButtonState() {
+            const saveBtn = document.getElementById('saveBtn');
+            if (changedCells.size > 0) {
+                saveBtn.textContent = `Lưu ${changedCells.size} thay đổi`;
+            } else {
+                saveBtn.textContent = 'Lưu thay đổi';
+            }
+        }
+        
+        function saveChanges() {
+            if (changedCells.size === 0) return;
+            
+            const changes = Array.from(changedCells.values()).map(change => ({
+                row_index: change.row,
+                field_name: change.field,
+                new_value: change.newValue
+            }));
+            
+            fetch('{% url "edit_record" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                },
+                body: JSON.stringify(changes)
+            })
+            .then(response => response.json())
+            .then(results => {
+                let successCount = 0;
+                results.forEach(result => {
+                    if (result.success) successCount++;
+                });
+                
+                if (successCount > 0) {
+                    alert(`Đã lưu thành công ${successCount} thay đổi!`);
+                    changedCells.forEach((change, key) => {
+                        const cell = document.querySelector(`[data-row="${change.row}"][data-field="${change.field}"]`);
+                        if (cell) {
+                            cell.dataset.original = change.newValue;
+                            cell.classList.remove('cell-changed');
+                        }
+                    });
+                    changedCells.clear();
+                    updateSaveButtonState();
+                }
+            })
+            .catch(error => {
+                alert('Lỗi: ' + error.message);
+            });
+        }
+        
+        function cancelEdit() {
+            changedCells.forEach((change, key) => {
+                const cell = document.querySelector(`[data-row="${change.row}"][data-field="${change.field}"]`);
+                if (cell) {
+                    cell.textContent = cell.dataset.original;
+                    cell.classList.remove('cell-changed');
+                }
+            });
+            changedCells.clear();
+            toggleEditMode();
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (!['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && imageFiles.length > 0) {
+                if (e.key === 'ArrowLeft' && currentImageIndex > 0) {
+                    previousImage();
+                    e.preventDefault();
+                } else if (e.key === 'ArrowRight' && currentImageIndex < imageFiles.length - 1) {
+                    nextImage();
+                    e.preventDefault();
+                }
+            }
+        });
+    </script>
+    
+    {% csrf_token %}
+</body>
+</html>

@@ -1,13 +1,18 @@
 # your_project_name/settings.py
 import os
+from pathlib import Path
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-your-secret-key-change-this-in-production-!!!' # Đổi bằng khóa bí mật của bạn
+SECRET_KEY = 'django-insecure-your-secret-key-change-this-in-production-!!!'
 
-DEBUG = True # Đặt False khi triển khai thực tế
+DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['118.70.222.145','ocr.ehou.edu.vn','speed.cloudflare.com','www.ocr.ehou.edu.vn']
+CSRF_TRUSTED_ORIGINS = [
+    'https://ocr.ehou.edu.vn',
+    'https://118.70.222.145'
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -16,12 +21,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'apps', # Đảm bảo tên này khớp với tên thư mục ứng dụng của bạn
+    'apps', 
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'apps.middleware.DebugMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -34,7 +40,7 @@ ROOT_URLCONF = 'ocr.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'app/templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -77,17 +83,76 @@ USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 
-
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# Session configuration
+SESSION_COOKIE_AGE = 7200  # 2 hours
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024   # 100MB
+
+# OCR specific settings
+OCR_SESSION_CLEANUP_HOURS = 24  # Clean up session data after 24 hours
+OCR_MAX_IMAGES_PER_SESSION = 100
+OCR_MAX_BATCH_SIZE = 15
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/django.log'),
+        },
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'apps': {  # Your app name
+            'handlers': ['file', 'console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+    },
+}
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# --- ĐẢM BẢO DÒNG NÀY CÓ MẶT VÀ KHÔNG BỊ BÌNH LUẬN ---
-# KHÔNG NÊN ĐỂ TRỰC TIẾP TRONG MÃ KHI TRIỂN KHAI THỰC TẾ
-# Sử dụng biến môi trường hoặc thư viện python-dotenv được khuyến nghị.
-# Nếu bạn muốn truyền cứng key như trước, chỉ cần:
-GOOGLE_API_KEY = "AIzaSyC3I5JqSD7S2V_g8nu99AZ60N0aNHITBn8"
+# Celery settings
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://localhost:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
+CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Asia/Ho_Chi_Minh'
+
+GOOGLE_API_KEY = "AIzaSyD7_NXYjJXlNXeJuqU9Vf8LkoMAltphNTY"
+#GOOGLE_API_KEY = "AIzaSyDCRIz_XfxbzRPBm6n5WkAFQuineFUqs"
