@@ -1,6 +1,9 @@
 # your_project_name/settings.py
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -154,5 +157,4 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Ho_Chi_Minh'
 
-GOOGLE_API_KEY = "AIzaSyD7_NXYjJXlNXeJuqU9Vf8LkoMAltphNTY"
-#GOOGLE_API_KEY = "AIzaSyDCRIz_XfxbzRPBm6n5WkAFQuineFUqs"
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', 'default_key_if_missing')
